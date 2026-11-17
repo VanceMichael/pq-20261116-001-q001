@@ -1,12 +1,15 @@
-export function assessCapture({ candidateCount, normalizedCount, rejectedCount, previousCount, feed, capturedAt }) {
+export function assessCapture({ candidateCount, normalizedCount, rejectedCount, previousCount, feed, capturedAt, minimumItems }) {
   if (!Number.isInteger(candidateCount) || candidateCount < 0) return { accepted: false, reason: "invalid_candidate_count" };
-  if (normalizedCount < feed.minimumItems) {
-    return { accepted: false, reason: `too_few_usable_items:${normalizedCount}<${feed.minimumItems}` };
+  // A resolved capture context may carry a rule-specific quality water level.
+  // Defaulting to the feed-level minimum preserves the legacy contract.
+  const effectiveMinimum = Number.isInteger(minimumItems) ? minimumItems : feed.minimumItems;
+  if (normalizedCount < effectiveMinimum) {
+    return { accepted: false, reason: `too_few_usable_items:${normalizedCount}<${effectiveMinimum}` };
   }
   if (feed.lastAcceptedAt && capturedAt <= feed.lastAcceptedAt) {
     return { accepted: false, reason: "stale_capture_timestamp" };
   }
-  const requiredFraction = previousCount > 0 ? Math.max(feed.minimumItems, Math.ceil(previousCount * 0.25)) : 0;
+  const requiredFraction = previousCount > 0 ? Math.max(effectiveMinimum, Math.ceil(previousCount * 0.25)) : 0;
   if (previousCount > 0 && normalizedCount < requiredFraction) {
     return { accepted: false, reason: `unexpected_count_drop:${normalizedCount}<${requiredFraction}` };
   }

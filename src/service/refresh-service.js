@@ -22,6 +22,12 @@ export class RefreshService {
     const feed = this.feeds.get(feedId);
     if (!feed) throw new Error(`unknown feed: ${feedId}`);
     const startedAt = this.clock().toISOString();
+    // Freeze the layout rule revision and its quality water level before any
+    // network work. The response that comes back is explained entirely with
+    // this context: an operator switching rules while the request is in flight
+    // cannot cause one capture to mix two revisions' candidate counts or
+    // minimum-item thresholds.
+    const context = this.imports.resolveContext(feedId);
     try {
       const fetched = await this.fetcher.fetchFeed(feed);
       const finishedAt = this.clock().toISOString();
@@ -31,9 +37,10 @@ export class RefreshService {
           attemptCount: fetched.attemptCount, requestedUrl: fetched.requestedUrl,
           finalUrl: fetched.finalUrl, captureId: null, errorCode: null, errorMessage: null
         });
-        return { attemptId, feedId, outcome: "not_modified", httpStatus: 304, capture: null };
+        return { attemptId, feedId, outcome: "not_modified", httpStatus: 304, capture: null,
+          rule: { ruleId: context.ruleId, ruleRevision: context.ruleRevision } };
       }
-      const capture = this.imports.importHtml(feedId, fetched.html, finishedAt);
+      const capture = this.imports.importHtml(feedId, fetched.html, finishedAt, context);
       const attemptId = this.fetches.record({
         feedId, startedAt, finishedAt, outcome: capture.accepted ? "accepted" : "rejected",
         httpStatus: fetched.status, attemptCount: fetched.attemptCount,
@@ -42,7 +49,8 @@ export class RefreshService {
         errorMessage: capture.reason
       });
       return { attemptId, feedId, outcome: capture.accepted ? "accepted" : "rejected",
-        httpStatus: fetched.status, capture };
+        httpStatus: fetched.status, capture,
+        rule: { ruleId: context.ruleId, ruleRevision: context.ruleRevision } };
     } catch (error) {
       const finishedAt = this.clock().toISOString();
       const attemptId = this.fetches.record({

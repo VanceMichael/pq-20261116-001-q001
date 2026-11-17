@@ -64,6 +64,7 @@ function mapFeed(row) {
     missingThreshold: row.missing_threshold,
     lastAcceptedAt: row.last_accepted_at,
     lastItemCount: row.last_item_count,
+    activeRuleRevision: row.active_rule_revision ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

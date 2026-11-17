@@ -3,6 +3,7 @@ import { FeedRepository } from "../store/feed-repository.js";
 import { CaptureRepository } from "../store/capture-repository.js";
 import { ArticleRepository } from "../store/article-repository.js";
 import { FetchRepository } from "../store/fetch-repository.js";
+import { LayoutRuleRepository } from "../store/layout-rule-repository.js";
 import { ImportService } from "../ingest/import-service.js";
 import { PageFetcher } from "../acquisition/page-fetcher.js";
 import { RefreshService } from "./refresh-service.js";
@@ -13,6 +14,7 @@ import { ReviewService } from "./review-service.js";
 import { CsvExporter } from "../export/csv-exporter.js";
 import { ArticleTimelineService } from "./article-timeline.js";
 import { IntegrityAuditService } from "./integrity-audit.js";
+import { LayoutRuleService } from "./layout-rule-service.js";
 
 export class NewsArchive {
   constructor(filename, options = {}) {
@@ -23,11 +25,18 @@ export class NewsArchive {
     this.articles = new ArticleRepository(this.database);
     this.fetches = new FetchRepository(this.database);
     this.reviews = new ReviewRepository(this.database);
+    this.layoutRuleStore = new LayoutRuleRepository(this.database);
     this.imports = new ImportService({
       database: this.database,
       feeds: this.feeds,
       captures: this.captures,
       articles: this.articles,
+      rules: this.layoutRuleStore,
+      clock: this.clock
+    });
+    this.layoutRules = new LayoutRuleService({
+      feeds: this.feeds,
+      rules: this.layoutRuleStore,
       clock: this.clock
     });
     this.refreshes = new RefreshService({
@@ -49,12 +58,32 @@ export class NewsArchive {
     return this.feeds.register(input, this.now());
   }
 
-  importSnapshot(feedId, html, capturedAt) {
-    return this.imports.importHtml(feedId, html, capturedAt);
+  importSnapshot(feedId, html, capturedAt, context = null) {
+    return this.imports.importHtml(feedId, html, capturedAt, context);
   }
 
   refreshFeed(feedId) {
     return this.refreshes.refresh(feedId);
+  }
+
+  createLayoutRule(feedId, input) {
+    return this.layoutRules.createCandidate(feedId, input);
+  }
+
+  listLayoutRules(feedId) {
+    return this.layoutRules.listRules(feedId);
+  }
+
+  previewLayoutRule(feedId, html, options) {
+    return this.layoutRules.preview(feedId, html, options);
+  }
+
+  activateLayoutRule(feedId, ruleId) {
+    return this.layoutRules.activate(feedId, ruleId);
+  }
+
+  deactivateLayoutRule(feedId) {
+    return this.layoutRules.deactivate(feedId);
   }
 
   feedStatus(feedId) {

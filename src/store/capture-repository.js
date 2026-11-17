@@ -1,10 +1,13 @@
+import { LEGACY_RULE_ID } from "../feed/layout-rule.js";
+
 export class CaptureRepository {
   constructor(database) {
     this.database = database;
     this.findFingerprint = database.prepare("SELECT * FROM captures WHERE feed_id=? AND fingerprint=?");
     this.insertCapture = database.prepare(`INSERT INTO captures
       (feed_id, fingerprint, captured_at, accepted, candidate_count, normalized_count,
-       rejected_count, duplicate_count, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+       rejected_count, duplicate_count, reason, rule_id, rule_revision, rule_minimum_items, extractor_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     this.listCaptures = database.prepare(`SELECT * FROM captures WHERE feed_id=?
       ORDER BY capture_id DESC LIMIT ?`);
     this.latestAccepted = database.prepare(`SELECT capture_id, captured_at, normalized_count FROM captures
@@ -17,9 +20,11 @@ export class CaptureRepository {
   }
 
   create({ feedId, fingerprint, capturedAt, accepted, candidateCount, normalizedCount,
-    rejectedCount, duplicateCount, reason = null }) {
+    rejectedCount, duplicateCount, reason = null, ruleId = LEGACY_RULE_ID,
+    ruleRevision = null, ruleMinimumItems = null, extractorStatus = null }) {
     const result = this.insertCapture.run(feedId, fingerprint, capturedAt, Number(accepted),
-      candidateCount, normalizedCount, rejectedCount, duplicateCount, reason);
+      candidateCount, normalizedCount, rejectedCount, duplicateCount, reason,
+      ruleId, ruleRevision, ruleMinimumItems, extractorStatus);
     return Number(result.lastInsertRowid);
   }
 
@@ -44,6 +49,10 @@ function mapCapture(row) {
     normalizedCount: row.normalized_count,
     rejectedCount: row.rejected_count,
     duplicateCount: row.duplicate_count,
-    reason: row.reason
+    reason: row.reason,
+    ruleId: row.rule_id ?? LEGACY_RULE_ID,
+    ruleRevision: row.rule_revision ?? null,
+    ruleMinimumItems: row.rule_minimum_items ?? null,
+    extractorStatus: row.extractor_status ?? null
   };
 }

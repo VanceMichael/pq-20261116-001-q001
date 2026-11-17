@@ -54,6 +54,43 @@ async function routeRequest(request, response, archive) {
     const result = archive.importSnapshot(feedId, html, request.headers["x-captured-at"]);
     return writeJson(response, result.accepted ? result.replay ? 200 : 202 : 422, result);
   }
+  if (segments.length === 4 && segments[3] === "layout-rules" && request.method === "GET") {
+    if (!archive.feedStatus(feedId)) return notFound(response);
+    const result = archive.listLayoutRules(feedId);
+    return writeJson(response, 200, { rules: result });
+  }
+  if (segments.length === 4 && segments[3] === "layout-rules" && request.method === "POST") {
+    if (!archive.feedStatus(feedId)) return notFound(response);
+    const result = archive.createLayoutRule(feedId, await readJson(request));
+    return writeJson(response, 201, { rule: result });
+  }
+  if (segments.length === 5 && segments[3] === "layout-rules" && segments[4] === "preview" && request.method === "POST") {
+    if (!archive.feedStatus(feedId)) return notFound(response);
+    const preview = await readPreviewRequest(request);
+    const result = archive.previewLayoutRule(feedId, preview.html, { candidate: preview.rule });
+    return writeJson(response, 200, result);
+  }
+  if (segments.length === 6 && segments[3] === "layout-rules" && segments[5] === "preview" && request.method === "POST") {
+    if (!archive.feedStatus(feedId)) return notFound(response);
+    const html = await readText(request);
+    const result = archive.previewLayoutRule(feedId, html, { ruleId: segments[4] });
+    return writeJson(response, 200, result);
+  }
+  if (segments.length === 5 && segments[3] === "layout-rules" && segments[4] === "active" && request.method === "POST") {
+    if (!archive.feedStatus(feedId)) return notFound(response);
+    const result = archive.deactivateLayoutRule(feedId);
+    return writeJson(response, 200, { withdrawn: result });
+  }
+  if (segments.length === 6 && segments[3] === "layout-rules" && segments[5] === "activate" && request.method === "POST") {
+    if (!archive.feedStatus(feedId)) return notFound(response);
+    const result = archive.activateLayoutRule(feedId, segments[4]);
+    return writeJson(response, 200, { rule: result });
+  }
+  if (segments.length === 6 && segments[3] === "layout-rules" && segments[5] === "deactivate" && request.method === "POST") {
+    if (!archive.feedStatus(feedId)) return notFound(response);
+    const result = archive.deactivateLayoutRule(feedId);
+    return writeJson(response, 200, { withdrawn: result });
+  }
   if (segments.length === 4 && segments[3] === "refresh" && request.method === "POST") {
     const result = await archive.refreshFeed(feedId);
     const status = result.outcome === "accepted" ? result.capture.replay ? 200 : 202 : result.outcome === "not_modified" ? 200 : 422;
@@ -125,6 +162,19 @@ async function routeRequest(request, response, archive) {
 
 function readText(request) {
   return readBody(request).then((buffer) => buffer.toString("utf8"));
+}
+
+// Ad-hoc preview carries both the candidate rule and the sample HTML in one
+// JSON document so operators can validate a rule that has not been stored yet.
+async function readPreviewRequest(request) {
+  const body = await readJson(request);
+  if (typeof body?.html !== "string" || body.html.length === 0) {
+    throw new TypeError("preview body must contain a non-empty html string");
+  }
+  if (typeof body?.rule !== "object" || body.rule === null) {
+    throw new TypeError("preview body must contain a rule object");
+  }
+  return { html: body.html, rule: body.rule };
 }
 
 function readJson(request) {

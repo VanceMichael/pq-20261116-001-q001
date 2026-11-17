@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export function openDatabase(filename) {
   const path = resolve(filename);
@@ -27,9 +27,26 @@ export function migrate(database) {
       missing_threshold INTEGER NOT NULL DEFAULT 3,
       last_accepted_at TEXT,
       last_item_count INTEGER NOT NULL DEFAULT 0,
+      active_rule_revision INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS layout_rules (
+      rule_id INTEGER PRIMARY KEY,
+      feed_id TEXT NOT NULL REFERENCES feeds(feed_id),
+      rule_key TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('candidate', 'active', 'withdrawn')),
+      container_selector TEXT NOT NULL,
+      item_selector TEXT,
+      link_pattern TEXT,
+      minimum_items INTEGER,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(feed_id, rule_key, revision)
+    );
+    CREATE INDEX IF NOT EXISTS layout_rules_feed ON layout_rules(feed_id, status);
     CREATE TABLE IF NOT EXISTS captures (
       capture_id INTEGER PRIMARY KEY,
       feed_id TEXT NOT NULL REFERENCES feeds(feed_id),
@@ -41,6 +58,10 @@ export function migrate(database) {
       rejected_count INTEGER NOT NULL,
       duplicate_count INTEGER NOT NULL,
       reason TEXT,
+      rule_id TEXT NOT NULL DEFAULT 'legacy-default',
+      rule_revision INTEGER,
+      rule_minimum_items INTEGER,
+      extractor_status TEXT,
       UNIQUE(feed_id, fingerprint)
     );
     CREATE INDEX IF NOT EXISTS captures_feed_time ON captures(feed_id, captured_at DESC);
@@ -92,9 +113,41 @@ export function migrate(database) {
       changed_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS review_events_article_time ON review_events(article_id, event_id DESC);
-    PRAGMA user_version = 1;
+    PRAGMA user_version = 2;
     COMMIT;
   `);
+  applyIncrementalMigration(database, version);
+}
+
+// Databases created at schema 1 lack the layout tables and the capture/feed
+// attribution columns. Add them in place so existing archives keep their data
+// while gaining per-source layout adaptation.
+function applyIncrementalMigration(database, fromVersion) {
+  if (fromVersion >= 2) return;
+  database.exec("BEGIN IMMEDIATE;");
+  try {
+    const columns = new Set(database.prepare("PRAGMA table_info(feeds)").all().map((row) => row.name));
+    if (!columns.has("active_rule_revision")) {
+      database.exec("ALTER TABLE feeds ADD COLUMN active_rule_revision INTEGER");
+    }
+    const captureColumns = new Set(database.prepare("PRAGMA table_info(captures)").all().map((row) => row.name));
+    if (!captureColumns.has("rule_id")) {
+      database.exec("ALTER TABLE captures ADD COLUMN rule_id TEXT NOT NULL DEFAULT 'legacy-default'");
+    }
+    if (!captureColumns.has("rule_revision")) {
+      database.exec("ALTER TABLE captures ADD COLUMN rule_revision INTEGER");
+    }
+    if (!captureColumns.has("rule_minimum_items")) {
+      database.exec("ALTER TABLE captures ADD COLUMN rule_minimum_items INTEGER");
+    }
+    if (!captureColumns.has("extractor_status")) {
+      database.exec("ALTER TABLE captures ADD COLUMN extractor_status TEXT");
+    }
+    database.exec("COMMIT;");
+  } catch (error) {
+    database.exec("ROLLBACK;");
+    throw error;
+  }
 }
 
 export function closeDatabase(database) {
